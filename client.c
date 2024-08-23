@@ -307,507 +307,228 @@ handle_show(void)
 			printf("           %c IP  ", columns[IP]);
 	}
 
-	if (columns[LAYER7]) {
-		printf("  %c Layer7  ", columns[LAYER7]);
-	}
-	else {
-		if (columns[PROTO])
-			printf("   %c Proto  ", columns[PROTO]);
+	if (columns[LAYER7])
+		printf("%c Layer7  ", columns[LAYER7]);
 
-		if (columns[PORT])
-			printf("%c Port ", columns[PORT]);
-	}
+	if (columns[PROTO])
+		printf("%c Proto  ", columns[PROTO]);
 
-	printf("  %c Conn.   %c Downld. ( %c Pkts. )    %c Upload ( %c Pkts. )\n",
-	       columns[CONNS],
-	       columns[RX_BYTES], columns[RX_PKTS],
-	       columns[TX_BYTES], columns[TX_PKTS]);
+	if (columns[PORT])
+		printf("%c Port  ", columns[PORT]);
 
-	while ((rec = database_next(h, rec)) != NULL) {
-		if (columns[FAMILY])
-			printf("IPv%d  ", rec->family == AF_INET ? 4 : 6);
+	if (columns[CONNS])
+		printf("%c Conns  ", columns[CONNS]);
 
-		if (columns[HOST]) {
-			printf("%15s (%02x:%02x:%02x)  ",
-			       format_ipaddr(rec->family, &rec->src_addr),
-			       rec->src_mac.ea.ether_addr_octet[3],
-			       rec->src_mac.ea.ether_addr_octet[4],
-			       rec->src_mac.ea.ether_addr_octet[5]);
-		}
-		else {
-			if (columns[MAC])
-				printf("%17s  ", format_macaddr(&rec->src_mac.ea));
+	if (columns[RX_BYTES])
+		printf("%c RxByts ", columns[RX_BYTES]);
 
-			if (columns[IP])
-				printf("%15s  ", format_ipaddr(rec->family, &rec->src_addr));
-		}
+	if (columns[RX_PKTS])
+		printf("%c RxPkts ", columns[RX_PKTS]);
 
-		if (columns[LAYER7]) {
-			pr = lookup_protocol(rec->proto, be16toh(rec->dst_port));
-			printf("%10s  ", pr ? pr->name : "other");
-		}
-		else {
-			if (columns[PROTO])
-				printf("%10s  ", format_proto(rec->proto));
+	if (columns[TX_BYTES])
+		printf("%c TxByts ", columns[TX_BYTES]);
 
-			if (columns[PORT])
-				printf("%5u  ", be16toh(rec->dst_port));
-		}
-
-		printf("%s  ",   format_num(rec->count));
-		printf("%sB ",   format_num(rec->in_bytes));
-		printf("(%s)  ", format_num(rec->in_pkts));
-		printf("%sB ",   format_num(rec->out_bytes));
-		printf("(%s)\n", format_num(rec->out_pkts));
-	}
-
-	database_free(h);
-
-	return 0;
-}
-
-static int
-handle_json(void)
-{
-	struct dbhandle *h = NULL;
-	struct record *rec = NULL;
-	char columns[MAX] = { };
-	struct protocol *pr;
-	int8_t i, r, n;
-	int err;
-
-	err = recv_database(&h);
-
-	if (err != 0)
-		return err;
-
-	for (i = 0; i < client_opt.group_by[0]; i++)
-		columns[client_opt.group_by[1 + i] - 1] = 1;
-
-	if (columns[HOST]) {
-		columns[IP] = columns[MAC] = 1;
-		columns[HOST] = 0;
-	}
-
-	if (columns[LAYER7]) {
-		columns[PROTO] = columns[PORT] = 1;
-	}
-
-	columns[CONNS]    = 1;
-	columns[RX_BYTES] = 1;
-	columns[RX_PKTS]  = 1;
-	columns[TX_BYTES] = 1;
-	columns[TX_PKTS]  = 1;
-
-	printf("{\"columns\":[");
-
-	for (i = 0, n = 0, r = 0; i < MAX; i++) {
-		if (!columns[i])
-			continue;
-
-		if (n++)
-			printf(",");
-
-		printf("\"%s\"", fields[i].name);
-	}
-
-	printf("],\"data\":[");
-
-	while ((rec = database_next(h, rec)) != NULL) {
-		if (!r)
-			r++;
-		else
-			printf(",");
-
-		printf("[");
-
-		for (i = 0, n = 0; i < MAX; i++) {
-			if (!columns[i])
-				continue;
-
-			if (n++)
-				printf(",");
-
-			switch (i)
-			{
-			case FAMILY:
-				printf("%"PRIu8, rec->family == AF_INET ? 4 : 6);
-				break;
-
-			case PROTO:
-				printf("\"%s\"", format_proto(rec->proto));
-				break;
-
-			case PORT:
-				printf("%"PRIu16, be16toh(rec->dst_port));
-				break;
-
-			case LAYER7:
-				pr = lookup_protocol(rec->proto, be16toh(rec->dst_port));
-				if (pr)
-					printf("\"%s\"", pr->name);
-				else
-					printf("null");
-				break;
-
-			case MAC:
-				printf("\"%s\"", format_macaddr(&rec->src_mac.ea));
-				break;
-
-			case IP:
-				printf("\"%s\"", format_ipaddr(rec->family, &rec->src_addr));
-				break;
-
-			case CONNS:
-				printf("%"PRIu64, be64toh(rec->count));
-				break;
-
-			case RX_BYTES:
-				printf("%"PRIu64, be64toh(rec->in_bytes));
-				break;
-
-			case RX_PKTS:
-				printf("%"PRIu64, be64toh(rec->in_pkts));
-				break;
-
-			case TX_BYTES:
-				printf("%"PRIu64, be64toh(rec->out_bytes));
-				break;
-
-			case TX_PKTS:
-				printf("%"PRIu64, be64toh(rec->out_pkts));
-				break;
-			}
-		}
-
-		printf("]");
-	}
-
-	database_free(h);
-
-	printf("]}");
-
-	return 0;
-}
-
-static int
-handle_csv(void)
-{
-	struct dbhandle *h = NULL;
-	struct record *rec = NULL;
-	char columns[MAX] = { };
-	struct protocol *pr;
-	int8_t i, n;
-	int err;
-
-	err = recv_database(&h);
-
-	if (err != 0)
-		return err;
-
-	for (i = 0; i < client_opt.group_by[0]; i++)
-		columns[client_opt.group_by[1 + i] - 1] = 1;
-
-	if (columns[HOST]) {
-		columns[IP] = columns[MAC] = 1;
-		columns[HOST] = 0;
-	}
-
-	if (columns[LAYER7]) {
-		columns[PROTO] = columns[PORT] = 1;
-	}
-
-	columns[CONNS]    = 1;
-	columns[RX_BYTES] = 1;
-	columns[RX_PKTS]  = 1;
-	columns[TX_BYTES] = 1;
-	columns[TX_PKTS]  = 1;
-
-	for (i = 0, n = 0; i < MAX; i++) {
-		if (!columns[i])
-			continue;
-
-		if (n++)
-			putchar(client_opt.separator);
-
-		print_csv_str(fields[i].name);
-	}
+	if (columns[TX_PKTS])
+		printf("%c TxPkts ", columns[TX_PKTS]);
 
 	putchar('\n');
 
 	while ((rec = database_next(h, rec)) != NULL) {
-		for (i = 0, n = 0; i < MAX; i++) {
-			if (!columns[i])
-				continue;
+		if (columns[FAMILY])
+			printf("%c%4u ", columns[FAMILY], rec->family);
 
-			if (n++)
-				putchar(client_opt.separator);
-
-			switch (i)
-			{
-			case FAMILY:
-				printf("%"PRIu8, rec->family == AF_INET ? 4 : 6);
-				break;
-
-			case PROTO:
-				print_csv_str(format_proto(rec->proto));
-				break;
-
-			case PORT:
-				printf("%"PRIu16, be16toh(rec->dst_port));
-				break;
-
-			case LAYER7:
-				pr = lookup_protocol(rec->proto, be16toh(rec->dst_port));
-				if (pr)
-					print_csv_str(pr->name);
-				break;
-
-			case MAC:
-				print_csv_str(format_macaddr(&rec->src_mac.ea));
-				break;
-
-			case IP:
-				print_csv_str(format_ipaddr(rec->family, &rec->src_addr));
-				break;
-
-			case CONNS:
-				printf("%"PRIu64, be64toh(rec->count));
-				break;
-
-			case RX_BYTES:
-				printf("%"PRIu64, be64toh(rec->in_bytes));
-				break;
-
-			case RX_PKTS:
-				printf("%"PRIu64, be64toh(rec->in_pkts));
-				break;
-
-			case TX_BYTES:
-				printf("%"PRIu64, be64toh(rec->out_bytes));
-				break;
-
-			case TX_PKTS:
-				printf("%"PRIu64, be64toh(rec->out_pkts));
-				break;
+		if (columns[HOST]) {
+			if (client_opt.plain_numbers) {
+				printf("%c%16s %s", columns[HOST],
+				       format_num(rec->count), rec->src_mac);
+			}
+			else {
+				print_csv_str(rec->src_mac);
+				putchar(',');
+				printf("%s", format_num(rec->count));
 			}
 		}
+		else {
+			if (columns[MAC])
+				printf("%c%16s ", columns[MAC], rec->src_mac);
+
+			if (columns[IP])
+				printf("%c%15s ", columns[IP], rec->src_addr);
+		}
+
+		if (columns[LAYER7]) {
+			pr = protocol_find(rec->proto);
+
+			if (pr)
+				printf("%c%s ", columns[LAYER7], pr->name);
+			else
+				printf("%c%3u ", columns[LAYER7], rec->proto);
+		}
+
+		if (columns[PROTO])
+			printf("%c%s ", columns[PROTO], format_proto(rec->proto));
+
+		if (columns[PORT])
+			printf("%c%5u ", columns[PORT], be16toh(rec->dst_port));
+
+		if (columns[CONNS])
+			printf("%c%6"PRIu64" ", columns[CONNS], rec->count);
+
+		if (columns[RX_BYTES])
+			printf("%c%7s ", columns[RX_BYTES], format_num(rec->in_bytes));
+
+		if (columns[RX_PKTS])
+			printf("%c%7s ", columns[RX_PKTS], format_num(rec->in_pkts));
+
+		if (columns[TX_BYTES])
+			printf("%c%7s ", columns[TX_BYTES], format_num(rec->out_bytes));
+
+		if (columns[TX_PKTS])
+			printf("%c%7s ", columns[TX_PKTS], format_num(rec->out_pkts));
 
 		putchar('\n');
 	}
 
-	database_free(h);
-
 	return 0;
 }
 
 static int
-handle_list(void)
+handle_summary(void)
 {
-	int ctrl_socket;
+	struct dbhandle *h = NULL;
+	struct record *rec = NULL;
+	char columns[MAX] = { };
+	int8_t i, n;
+	uint64_t bytes[2] = { };
+	uint64_t pkts[2] = { };
+	int err;
 
-	ctrl_socket = usock(USOCK_UNIX, opt.socket, NULL);
+	err = recv_database(&h);
 
-	if (!ctrl_socket)
-		return -errno;
+	if (err != 0)
+		return err;
 
-	if (send(ctrl_socket, "list", 4, 0) != 4) {
-		close(ctrl_socket);
-		return -errno;
+	for (i = 0; i < client_opt.group_by[0]; i++)
+		columns[client_opt.group_by[1 + i] - 1] = ' ';
+
+	columns[RX_BYTES] = ' ';
+	columns[RX_PKTS]  = ' ';
+	columns[TX_BYTES] = ' ';
+	columns[TX_PKTS]  = ' ';
+
+	for (i = 0; i < client_opt.order_by[0]; i++) {
+		n = (client_opt.order_by[1 + i] < 0) ?
+		    -client_opt.order_by[1 + i] : client_opt.order_by[1 + i];
+		columns[n - 1] = ' ';
 	}
 
-	while (true) {
-		if (recv(ctrl_socket, &client_opt.timestamp,
-		         sizeof(client_opt.timestamp), 0) <= 0)
-			break;
+	if (columns[RX_BYTES] || columns[TX_BYTES])
+		printf("Bytes     ");
 
-		printf("%04d-%02d-%02d\n",
-		       client_opt.timestamp / 10000,
-		       client_opt.timestamp % 10000 / 100,
-		       client_opt.timestamp % 100);
+	if (columns[RX_PKTS] || columns[TX_PKTS])
+		printf("Packets   ");
+
+	putchar('\n');
+
+	while ((rec = database_next(h, rec)) != NULL) {
+		if (columns[RX_BYTES])
+			bytes[0] += rec->in_bytes;
+
+		if (columns[TX_BYTES])
+			bytes[1] += rec->out_bytes;
+
+		if (columns[RX_PKTS])
+			pkts[0] += rec->in_pkts;
+
+		if (columns[TX_PKTS])
+			pkts[1] += rec->out_pkts;
 	}
 
-	close(ctrl_socket);
+	if (columns[RX_BYTES])
+		printf("%s ", format_num(bytes[0]));
+
+	if (columns[TX_BYTES])
+		printf("%s ", format_num(bytes[1]));
+
+	if (columns[RX_PKTS])
+		printf("%s ", format_num(pkts[0]));
+
+	if (columns[TX_PKTS])
+		printf("%s ", format_num(pkts[1]));
+
+	putchar('\n');
 
 	return 0;
-}
-
-static int
-handle_commit(void)
-{
-	char reply[128] = { };
-	int ctrl_socket;
-
-	ctrl_socket = usock(USOCK_UNIX, opt.socket, NULL);
-
-	if (!ctrl_socket)
-		return -errno;
-
-	if (send(ctrl_socket, "commit", 6, 0) != 6) {
-		close(ctrl_socket);
-		return -errno;
-	}
-
-	if (recv(ctrl_socket, reply, sizeof(reply)-1, 0) <= 0) {
-		close(ctrl_socket);
-		return -ENODATA;
-	}
-
-	printf("%s\n", reply);
-	close(ctrl_socket);
-
-	return -strtol(reply, NULL, 10);
 }
 
 static struct command commands[] = {
 	{ "show", handle_show },
-	{ "json", handle_json },
-	{ "csv", handle_csv },
-	{ "list", handle_list },
-	{ "commit", handle_commit },
+	{ "summary", handle_summary },
+	{ NULL, NULL }
 };
 
+static void
+parse_options(void)
+{
+	const struct option opts[] = {
+		{ "plain-numbers", no_argument, NULL, 'n' },
+		{ "group-by", required_argument, NULL, 'g' },
+		{ "order-by", required_argument, NULL, 'o' },
+		{ "separator", required_argument, NULL, 's' },
+		{ "escape", required_argument, NULL, 'e' },
+		{ "quote", required_argument, NULL, 'q' },
+		{ NULL, 0, NULL, 0 }
+	};
+	int opt, index;
+
+	while ((opt = getopt_long(argc, argv, "", opts, &index)) != -1) {
+		switch (opt) {
+		case 'n':
+			client_opt.plain_numbers = true;
+			break;
+		case 'g':
+			// Handle group-by options
+			break;
+		case 'o':
+			// Handle order-by options
+			break;
+		case 's':
+			client_opt.separator = optarg[0];
+			break;
+		case 'e':
+			client_opt.escape = optarg[0];
+			break;
+		case 'q':
+			client_opt.quote = optarg[0];
+			break;
+		default:
+			fprintf(stderr, "Unknown option -%c\n", opt);
+			exit(EXIT_FAILURE);
+		}
+	}
+}
 
 int
-client_main(int argc, char **argv)
+main(int argc, char *argv[])
 {
-	struct command *cmd = NULL;
-	int i, f, err, optchr;
-	unsigned int year, month, day;
-	char c, *p;
+	struct command *cmd;
+	const char *cmd_name;
 
-	while ((optchr = getopt(argc, argv, "c:p:S:g:o:t:s::q::e::n")) > -1) {
-		switch (optchr) {
-		case 'S':
-			opt.socket = optarg;
-			break;
+	parse_options();
 
-		case 'c':
-			for (i = 0; i < sizeof(commands) / sizeof(commands[0]); i++) {
-				if (!strcmp(commands[i].cmd, optarg)) {
-					cmd = &commands[i];
-					break;
-				}
-			}
+	if (argc < 2) {
+		fprintf(stderr, "Usage: %s <command> [options]\n", argv[0]);
+		return EXIT_FAILURE;
+	}
 
-			if (!cmd) {
-				fprintf(stderr, "Unrecognized command '%s'\n", optarg);
-				return 1;
-			}
+	cmd_name = argv[1];
 
-			break;
-
-		case 'p':
-			opt.protocol_db = optarg;
-			break;
-
-		case 'g':
-		case 'o':
-			p = optarg;
-
-			while (1) {
-				c = *p++;
-
-				if (c != ',' && c != '\0')
-					continue;
-
-				for (i = 0, f = 0; i < MAX; i++) {
-					if (*optarg == '-') {
-						if (optchr == 'g') {
-							fprintf(stderr, "Cannot invert group column\n");
-							return 1;
-						}
-
-						if (!strncmp(fields[i].name, optarg+1, p-optarg-2)) {
-							f = -(1 + i);
-							break;
-						}
-					}
-					else if (!strncmp(fields[i].name, optarg, p-optarg-1)) {
-						f = 1 + i;
-						break;
-					}
-				}
-
-				if (!f) {
-					fprintf(stderr, "Unrecognized field '%s'\n", optarg);
-					return 1;
-				}
-
-				if (optchr == 'g')
-					client_opt.group_by[++(client_opt.group_by[0])] = f;
-				else
-					client_opt.order_by[++(client_opt.order_by[0])] = f;
-
-				if (c == '\0')
-					break;
-
-				optarg = p;
-			}
-
-			break;
-
-		case 't':
-			if (sscanf(optarg, "%4u-%2u-%2u", &year, &month, &day) != 3) {
-				fprintf(stderr, "Unrecognized date '%s'\n", optarg);
-				return 1;
-			}
-
-			client_opt.timestamp = year * 10000 + month * 100 + day;
-			break;
-
-		case 'n':
-			client_opt.plain_numbers = 1;
-			break;
-
-		case 's':
-			client_opt.separator = optarg ? *optarg : 0;
-			break;
-
-		case 'q':
-			client_opt.quote = optarg ? *optarg : 0;
-			break;
-
-		case 'e':
-			client_opt.escape = optarg ? *optarg : 0;
-			break;
+	for (cmd = commands; cmd->cmd; cmd++) {
+		if (strcmp(cmd_name, cmd->cmd) == 0) {
+			return cmd->fn();
 		}
 	}
 
-	if (!client_opt.group_by[0]) {
-		client_opt.group_by[0] = 3;
-		client_opt.group_by[1] = FAMILY + 1;
-		client_opt.group_by[2] = HOST   + 1;
-		client_opt.group_by[3] = LAYER7 + 1;
-
-	}
-
-	if (!client_opt.order_by[0]) {
-		client_opt.order_by[0] = 2;
-		client_opt.order_by[1] = -RX_BYTES - 1;
-		client_opt.order_by[2] = -RX_PKTS  - 1;
-	}
-
-	if (!cmd) {
-		fprintf(stderr, "No command specified\n");
-		return 1;
-	}
-
-	err = init_protocols(opt.protocol_db);
-
-	if (err) {
-		fprintf(stderr, "Unable to read protocol list %s: %s\n",
-		        opt.protocol_db, strerror(-err));
-		return 1;
-	}
-
-	err = cmd->fn();
-
-	if (err) {
-		fprintf(stderr, "Error while processing command: %s\n",
-		        strerror(-err));
-		return err;
-	}
-
-	return 0;
+	fprintf(stderr, "Unknown command: %s\n", cmd_name);
+	return EXIT_FAILURE;
 }
