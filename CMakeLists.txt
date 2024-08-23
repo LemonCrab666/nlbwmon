@@ -6,6 +6,18 @@ add_definitions(-Os -Wall -Werror --std=gnu99 -g3 -Wmissing-declarations -D_GNU_
 
 option(LIBNL_LIBRARY_TINY "Use LEDE/OpenWrt libnl-tiny" OFF)
 
+# Check for libnftnl
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBNFTNL libnftnl)
+
+if (LIBNFTNL_FOUND)
+  include_directories(${LIBNFTNL_INCLUDE_DIRS})
+  link_directories(${LIBNFTNL_LIBRARY_DIRS})
+  add_definitions(-DHAVE_LIBNFTNL)
+else()
+  message(FATAL_ERROR "libnftnl library not found")
+endif()
+
 set(SOURCES
 	client.c database.c neigh.c nfnetlink.c
 	nlbwmon.c protocol.c socket.c subnets.c
@@ -31,7 +43,7 @@ if (INTERVAL_FUNCTION_EXISTS)
   add_definitions(-DHAVE_ULOOP_INTERVAL)
 endif()
 
-target_link_libraries(nlbwmon ubox z)
+target_link_libraries(nlbwmon ubox z ${LIBNFTNL_LIBRARIES})
 
 set(CMAKE_INSTALL_PREFIX /usr)
 
